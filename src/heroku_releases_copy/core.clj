@@ -11,6 +11,7 @@
 (assert (not-empty (System/getenv "HEROKU_RELEASE_SOURCE_APP")))
 (assert (not-empty (System/getenv "HEROKU_RELEASE_TARGET_ORG")))
 (assert (not-empty (System/getenv "HEROKU_RELEASE_TARGET_APPS")))
+(assert (not-empty (System/getenv "MONGO_URL")))
 
 
 ;-- Global constants
@@ -38,10 +39,28 @@
 (defn post-heroku-data
   ([path json-data] post-heroku-data path json-data nil)
   ([path json-data options]
-   let [options (merge {:form-params json-data} (merge options heroku-options))
-        {:keys [body error]} @(http/post (str heroku-api-endpoint path) options)]
-   (if error (throw (Exception. (str "Failed, exception: " error)))
-             (parse-string body true))))
+   (let [options (merge {:form-params json-data} (merge options heroku-options))
+         {:keys [body error]} @(http/post (str heroku-api-endpoint path) options)]
+     (if error (throw (Exception. (str "Failed, exception: " error)))
+               (parse-string body true)))))
+
+
+;-- MongoDB helper functions
+(defn save-to-mongo [configuration-data deployment-data]
+  (let [uri (System/getenv "MONGO_URL")
+        {:keys [conn db]} (mg/connect-via-uri uri)]
+; TODO -- update the data
+    (mc/insert-and-return db "orgAppEnv" configuration-data)
+    (mg/disconnect conn)))
+
+
+(defn get-configuration-from-mongo [app-name]
+  (let [uri (System/getenv "MONGO_URL")
+        {:keys [conn db]} (mg/connect-via-uri uri)
+        configuration-data (mc/find-one db "orgAppEnv" {"app.name" app-name})]
+    (mg/disconnect conn)
+    configuration-data))
+
 
 
 ;-- Do the work functions
@@ -78,18 +97,16 @@
   (doall (map #(copy-release slug %) targets)))
 
 (defn run-copy []
-  (let [targets (find-target-apps (:org parameters) (str/split (:targets parameters) #"\s+"))
+  (let [configuration-data (get-configuration-from-mongo (:app parameters))
+        targets (find-target-apps (:org parameters) (str/split (:targets parameters) #"\s+"))
         release (if (nil? (:version parameters))
                   (get-release (:app parameters))
-                  (get-release (:app parameters) (:version parameters)))]
-    (copy-releases (get-in release [:slug :id]) targets)))
+                  (get-release (:app parameters) (:version parameters)))
+        deployment-data (copy-releases (get-in release [:slug :id]) targets)]
+    (save-to-mongo configuration-data deployment-data)))
 
 ;-- Enable lein run
 (defn -main [] (run-copy))
-
-
-
-; TODO Save data to Mongo
 
 
 
