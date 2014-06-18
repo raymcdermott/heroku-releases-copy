@@ -12,13 +12,16 @@
 (assert (not-empty (System/getenv "HEROKU_RELEASE_TARGET_ORG")))
 (assert (not-empty (System/getenv "HEROKU_RELEASE_TARGET_APPS")))
 (assert (not-empty (System/getenv "MONGO_URL")))
+(assert (not-empty (System/getenv "MONGO_COLLECTION")))
 
 
 ;-- Global constants
-(def parameters {:app     (System/getenv "HEROKU_RELEASE_SOURCE_APP")
-                 :org     (System/getenv "HEROKU_RELEASE_TARGET_ORG")
-                 :targets (System/getenv "HEROKU_RELEASE_TARGET_APPS")
-                 :version (System/getenv "HEROKU_RELEASE_SOURCE_APP_VERSION")})
+(def parameters {:app        (System/getenv "HEROKU_RELEASE_SOURCE_APP")
+                 :org        (System/getenv "HEROKU_RELEASE_TARGET_ORG")
+                 :targets    (System/getenv "HEROKU_RELEASE_TARGET_APPS")
+                 :version    (System/getenv "HEROKU_RELEASE_SOURCE_APP_VERSION")
+                 :mongo      (System/getenv "MONGO_URL")
+                 :collection (System/getenv "MONGO_COLLECTION")})
 
 (def heroku-api-endpoint "https://api.heroku.com")
 
@@ -46,64 +49,57 @@
 
 
 ;-- MongoDB helper functions
-(defn save-to-mongo [configuration-data deployment-data]
-  (let [uri (System/getenv "MONGO_URL")
+(defn save-to-mongo [configuration-data]
+  (let [uri (:mongo parameters)
         {:keys [conn db]} (mg/connect-via-uri uri)]
-; TODO -- update the data
-    (mc/insert-and-return db "orgAppEnv" configuration-data)
+    (mc/update db (:collection parameters) configuration-data)
     (mg/disconnect conn)))
 
 
 (defn get-configuration-from-mongo [app-name]
-  (let [uri (System/getenv "MONGO_URL")
+  (let [uri (:mongo parameters)
         {:keys [conn db]} (mg/connect-via-uri uri)
-        configuration-data (mc/find-one db "orgAppEnv" {"app.name" app-name})]
+        configuration-data (mc/find-one-as-map db (:collection parameters) {"app.name" app-name})]
     (mg/disconnect conn)
-    configuration-data))
-
+    (if (nil? configuration-data)
+      (throw (Exception. (str "Failed, cannot find configuration for : " app-name)))
+      configuration-data)))
 
 
 ;-- Do the work functions
-
 (defn check-regexes [string regexes-as-strings]
   "Check whether one of a list of regexes matches the string"
   (remove nil? (map #(re-matches (re-pattern %) string) regexes-as-strings)))
 
 (defn find-target-apps [organization regexes]
-  "Find a filtered list of apps in the organisation whose name matches the regex for example
-    (target-apps 'tme-web-preview' 'bamboo-app1')
-    (target-apps 'tme-web-preview' 'bamboo-.*')
-    (target-apps 'tme-web-preview' '.*-[a-z]{2}')"
-  (let [apps (get-heroku-data (str "/organizations/" organization "/apps"))
-        filtered-apps (mapcat #(check-regexes (:name %) regexes) apps)]
-    filtered-apps))
+  "Find a filtered list of apps in the organisation whose name matches at least one of the regexes"
+  (let [apps (get-heroku-data (str "/organizations/" organization "/apps"))]
+    (mapcat #(check-regexes (:name %) regexes) apps)))
 
 (defn app-releases [app]
-  "Find releases for app"
   (get-heroku-data (str "/apps/" app "/releases") heroku-options))
 
-(defn get-release
-  "Get the release data for the most recent (or specific) version of app"
-  ([app] (let [releases (app-releases app)
-               sorted-list (sort-by :version < releases)]
-           (last sorted-list)))
-  ([app version] (let [releases (app-releases app)]
-                   (filter #(= version (:version %)) releases))))
+(defn get-latest-release [app]
+  (let [releases (app-releases app)]
+    (last (sort-by :version < releases))))
 
-(defn copy-release [slug target]
-  (post-heroku-data (str "/apps/" target "/releases") {"slug" slug}))
+(defn get-specific-release [app version]
+  (let [releases (app-releases app)]
+    (filter #(= version (:version %)) releases)))
 
-(defn copy-releases [slug targets]
-  (doall (map #(copy-release slug %) targets)))
+(defn copy-release [slug target configuration-data]
+  (let [deployment-data (post-heroku-data (str "/apps/" target "/releases") {"slug" slug})]
+    (merge configuration-data deployment-data)))
 
 (defn run-copy []
   (let [configuration-data (get-configuration-from-mongo (:app parameters))
         targets (find-target-apps (:org parameters) (str/split (:targets parameters) #"\s+"))
         release (if (nil? (:version parameters))
-                  (get-release (:app parameters))
-                  (get-release (:app parameters) (:version parameters)))
-        deployment-data (copy-releases (get-in release [:slug :id]) targets)]
-    (save-to-mongo configuration-data deployment-data)))
+                  (get-latest-release (:app parameters))
+                  (get-specific-release (:app parameters) (:version parameters)))
+        merge-data (partial merge configuration-data)
+        heroku-copier (comp save-to-mongo merge-data copy-release)] ; AOP on the cheap!
+    (dorun (map #(heroku-copier (get-in release [:slug :id]) %) targets))))
 
 ;-- Enable lein run
 (defn -main [] (run-copy))
