@@ -79,17 +79,18 @@
 (defn app-releases [app]
   (get-heroku-data (str "/apps/" app "/releases") heroku-options))
 
+; TODO -- how to unify these two functions?
+
 (defn get-latest-release [app]
-  (let [releases (app-releases app)]
-    (last (sort-by :version < releases))))
+  (let [release (last (sort-by :version < (app-releases app)))]
+    (get-in release [:slug :id])))
 
 (defn get-specific-release [app version]
-  (let [releases (app-releases app)]
-    (filter #(= version (:version %)) releases)))
+  (let [release (filter #(= version (:version %)) (app-releases app))]
+    (get-in release [:slug :id])))
 
-(defn copy-release [slug target configuration-data]
-  (let [deployment-data (post-heroku-data (str "/apps/" target "/releases") {"slug" slug})]
-    (merge configuration-data deployment-data)))
+(defn copy-release [slug target]
+  (post-heroku-data (str "/apps/" target "/releases") {"slug" slug}))
 
 (defn run-copy []
   (let [configuration-data (get-configuration-from-mongo (:app parameters))
@@ -99,10 +100,11 @@
                   (get-specific-release (:app parameters) (:version parameters)))
         merge-data (partial merge configuration-data)
         heroku-copier (comp save-to-mongo merge-data copy-release)] ; AOP on the cheap!
-    (dorun (map #(heroku-copier (get-in release [:slug :id]) %) targets))))
+    (dorun (map #(heroku-copier release %) targets))))
 
 ;-- Enable lein run
 (defn -main [] (run-copy))
+
 
 
 
