@@ -79,28 +79,20 @@
 (defn app-releases [app]
   (get-heroku-data (str "/apps/" app "/releases") heroku-options))
 
-; TODO -- how to unify these two functions?
-
-(defn get-latest-release [app]
-  (let [release (last (sort-by :version < (app-releases app)))]
-    (get-in release [:slug :id])))
-
-(defn get-specific-release [app version]
-  (let [release (filter #(= version (:version %)) (app-releases app))]
-    (get-in release [:slug :id])))
-
 (defn copy-release [slug target]
   (post-heroku-data (str "/apps/" target "/releases") {"slug" slug}))
 
 (defn run-copy []
-  (let [configuration-data (get-configuration-from-mongo (:app parameters))
-        targets (find-target-apps (:org parameters) (str/split (:targets parameters) #"\s+"))
+  (let [targets (find-target-apps (:org parameters) (str/split (:targets parameters) #"\s+"))
+        configuration-data (get-configuration-from-mongo (:app parameters))
+        app-releases (app-releases (:app parameters))
         release (if (nil? (:version parameters))
-                  (get-latest-release (:app parameters))
-                  (get-specific-release (:app parameters) (:version parameters)))
+                  (last (sort-by :version < app-releases))
+                  (filter #(= (:version parameters) (:version %)) app-releases))
+        slug (get-in release [:slug :id])
         merge-data (partial merge configuration-data)
-        heroku-copier (comp save-to-mongo merge-data copy-release)] ; AOP on the cheap!
-    (dorun (map #(heroku-copier release %) targets))))
+        heroku-copier (comp save-to-mongo merge-data copy-release)]
+    (dorun (map #(heroku-copier slug %) targets))))
 
 ;-- Enable lein run
 (defn -main [] (run-copy))
