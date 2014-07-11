@@ -1,14 +1,13 @@
 # heroku-releases-copy
 
-A Clojure library designed to ... well, that part is up to you.
+A Clojure library designed to manage releases on Heroku
 
 ## Usage
 
-FIXME
+TBC
 
 ## License
 
-Copyright © 2014 FIXME
+Copyright © 2014 raymcdermott
 
-Distributed under the Eclipse Public License either version 1.0 or (at
-your option) any later version.
+Distributed under the MIT Public License
