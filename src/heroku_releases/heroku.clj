@@ -1,4 +1,4 @@
-(ns heroku-releases.heroku-helpers
+(ns heroku-releases.heroku
   (:require [clojure.string :as str]
             [org.httpkit.client :as http]
             [cheshire.core :refer :all]))
@@ -34,3 +34,24 @@
          {:keys [body error]} @(http/post (str heroku-api-endpoint path) options)]
      (if error (throw (Exception. (str "Failed, exception: " error)))
                (parse-string body true)))))
+
+;-- Exposing parts of the API used by these Use Cases
+(defn org-apps [organization]
+  "Obtain the list of apps in the organisation"
+  (get-heroku-data (str "/organizations/" organization "/apps")))
+
+(defn app-releases [app]
+  "Obtain the list of maps that contain release data for the app"
+  (get-heroku-data (str "/apps/" app "/releases")))
+
+(defn get-latest-release [app]
+  "Obtain the latest release from the (unordered) response"
+  (last (sort-by :version < (app-releases app))))
+
+(defn get-specific-release [app version]
+  "Obtain a specific release from the (unordered) response"
+  (first (filter #(= version (:version %)) (app-releases app))))
+
+(defn copy-release [slug target]
+  "Copy the slug to the target app"
+  (post-heroku-data (str "/apps/" target "/releases") {"slug" slug}))

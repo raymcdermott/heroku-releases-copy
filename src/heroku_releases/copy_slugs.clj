@@ -1,6 +1,6 @@
 (ns heroku-releases.copy-slugs
   (:require [clojure.string :as str]
-            [heroku-releases.heroku-helpers :refer :all]
+            [heroku-releases.heroku :as heroku]
             [heroku-releases.mongo-helpers :refer :all]))
 
 ;-- Helper Functions
@@ -10,29 +10,14 @@
 
 (defn find-target-apps [organization regexes]
   "Find a filtered list of apps in the organisation whose name matches at least one of the regexes"
-  (let [apps (get-heroku-data (str "/organizations/" organization "/apps"))]
+  (let [apps (heroku/org-apps organization)]
     (mapcat #(check-regexes (:name %) regexes) apps)))
 
-(defn app-releases [app]
-  "Obtain the list of maps that contain release data for the app"
-  (get-heroku-data (str "/apps/" app "/releases")))
-
-(defn slug-from-app-release [lookup-fn app]
-  "Use the lookup-fn to obtain the relevant release and then pluck out the slug id"
-  (let [release (lookup-fn (app-releases app))]
+(defn get-slug [app version]
+  (let [release (if (nil? version)
+                  (heroku/get-latest-release app)
+                  ((heroku/get-specific-release version) app))]
     (get-in release [:slug :id])))
-
-(defn get-slug
-  "Define and compose partial functions to get the slug id"
-  ([app] (get-slug app (System/getenv "HEROKU_RELEASE_SOURCE_APP_VERSION")))
-  ([app version]
-   (if (nil? version)
-     (slug-from-app-release (comp last (partial sort-by :version <))  app)
-     (slug-from-app-release (comp first (partial filter #(= version (:version %))))  app))))
-
-(defn copy-release [slug target]
-  "Copy the slug to the target app"
-  (post-heroku-data (str "/apps/" target "/releases") {"slug" slug}))
 
 ;-- Combination program
 (defn run-copy
@@ -45,10 +30,10 @@
   ([app org targets]
    {:pre [(string? app) (string? org) (string? targets)]}
    (let [configuration-data (get-configuration-from-mongo app)
-         slug (get-slug app)
+         slug (get-slug app (System/getenv "HEROKU_RELEASE_SOURCE_APP_VERSION"))
          target-list (find-target-apps org (str/split targets #"\s+"))
          merge-data (partial merge configuration-data)
-         heroku-copier (comp save-configuration-to-mongo merge-data copy-release)] ; AOP on the cheap!
+         heroku-copier (comp save-configuration-to-mongo merge-data heroku/copy-release)] ; AOP on the cheap!
      (println (str " targets " (count target-list) " slug " slug "cd " configuration-data))
      (dorun (map #(heroku-copier slug %) target-list)))))
 
