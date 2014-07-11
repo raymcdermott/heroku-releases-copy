@@ -3,9 +3,8 @@
             [monger.core :as mg]
             [monger.collection :as mc]))
 
-
-;-- Run a function wrapped by a connect / disconnect
 (defn mongo-action
+  "Run a function on MongoDB wrapped by a connect / disconnect"
   ([db-fn data]
    (mongo-action (System/getenv "MONGO_URL") db-fn data))
 
@@ -20,11 +19,12 @@
      (mg/disconnect conn)
      result)))
 
-;-- Functions to integrate with MongoDB
 (defn save-configuration-to-mongo [configuration-data]
+  "Save the release configuration data to MongoDB"
   (mongo-action mc/update configuration-data))
 
 (defn get-configuration-from-mongo [app-name]
+  "Obtain the release configuration data from MongoDB for app-name"
   (let [configuration-data (mongo-action mc/find-one-as-map {"app.name" app-name})]
     (if (nil? configuration-data)
       (throw (Exception. (str "Failed, cannot find configuration for : " app-name)))
