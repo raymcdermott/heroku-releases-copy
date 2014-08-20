@@ -13,10 +13,12 @@
   (let [apps (heroku/org-apps organization)]
     (mapcat #(check-regexes (:name %) regexes) apps)))
 
-(defn get-slug [app version]
-  (let [release (if (nil? version)
-                  (heroku/get-latest-release app)
-                  ((heroku/get-specific-release version) app))]
+(defn get-latest-slug [app]
+  (let [release (heroku/get-latest-release app)]
+    (get-in release [:slug :id])))
+
+(defn get-specific-slug [app version]
+  (let [release (heroku/get-specific-release app version)]
     (get-in release [:slug :id])))
 
 ;-- Combination program
@@ -30,12 +32,15 @@
   ([app org targets]
    {:pre [(string? app) (string? org) (string? targets)]}
    (let [configuration-data (get-configuration-from-mongo app)
-         slug (get-slug app (System/getenv "HEROKU_RELEASE_SOURCE_APP_VERSION"))
+         version (System/getenv "HEROKU_RELEASE_SOURCE_APP_VERSION")
+         slug (if (nil? version)
+                (get-latest-slug app)
+                (get-specific-slug app version))
          target-list (find-target-apps org (str/split targets #"\s+"))
          merge-data (partial merge configuration-data)
          heroku-copier (comp save-configuration-to-mongo merge-data heroku/copy-release)] ; AOP on the cheap!
      (println (str " targets " (count target-list) " slug " slug "cd " configuration-data))
      (dorun (map #(heroku-copier slug %) target-list)))))
 
-;-- Enable lein run
+;-- Enable lein run -m <namespace>
 (defn -main [] (run-copy))

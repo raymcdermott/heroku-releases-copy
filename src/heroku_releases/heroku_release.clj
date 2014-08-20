@@ -4,19 +4,22 @@
             [heroku-releases.mongo-helpers :refer :all]
             [heroku-releases.heroku :as heroku]))
 
-;-- Obtain the latest slug from heroku (deliberately ignoring race conditions)
+;-- Obtain the slug from heroku that matches the requirements
+; for example the git commit ID or comment
+; TODO: work out how to achieve this!!
+
 (defn get-latest-slug [app]
   (let [release (heroku/get-latest-release app)]
     (get-in release [:slug :id])))
 
 (defn record-release [slug]
-  ;-- TODO
+  (create-mongo-collection)
+  ; TODO: create a configuration for the app
   )
 
 (defn track-release [app]
   (let [slug (get-latest-slug app)]
     (record-release slug)))
 
-
-
-;-- Create a mongo document if not one yet there
+;-- Enable lein run -m <namespace>
+(defn -main [] (get-latest-slug "bamboo-deploy-test"))
