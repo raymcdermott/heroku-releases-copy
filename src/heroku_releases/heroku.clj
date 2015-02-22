@@ -1,19 +1,22 @@
+;-- Heroku REST API helper functions
+
 (ns heroku-releases.heroku
   (:require [clojure.string :as str]
             [org.httpkit.client :as http]
+            [environ.core :refer [env]]
             [cheshire.core :refer :all]))
-
 
 (def heroku-api-endpoint "https://api.heroku.com")
 
+(def api-token (or (env :heroku-api-token)
+                   (throw (Exception. (str "You must set HEROKU_API_TOKEN")))))
+
 (def default-heroku-options {:timeout     30000             ; ms -- 30 seconds
-                             :oauth-token (System/getenv "HEROKU_API_TOKEN")
+                             :oauth-token api-token
                              :headers     {"Accept: application/vnd.heroku+json; version=3"
                                             "Content-type: application/json"}})
-
-;-- Heroku REST API helper functions
 (defn get-heroku-data
-  "General function to GET data from the Heroku platform API"
+  "General function to GET data from the Heroku platform REST API"
   ([path]
    (get-heroku-data path nil))
 
@@ -24,7 +27,7 @@
                (parse-string body true)))))
 
 (defn post-heroku-data
-  "General function to POST data to the Heroku platform API"
+  "General function to POST data to the Heroku platform REST API"
   ([path json-data]
    (post-heroku-data path json-data nil))
 
